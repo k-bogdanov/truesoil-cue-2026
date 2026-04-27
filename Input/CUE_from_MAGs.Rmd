@@ -1,0 +1,518 @@
+---
+title: "CUE_from_MAGs"
+author: "KB"
+date: "2026-04-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+#library(showtext)
+library(tidyr)
+library(stringr)
+#library(vegan)
+#library(circlize)
+library(readxl)
+library(readr)
+```
+
+```{r theme }
+truesoil_theme <- theme(
+        axis.title.y = element_text(size = 12, face = "bold", vjust = 3),
+        axis.title.x = element_text(size = 12, face = "bold", vjust = -1),
+        panel.background = element_rect(fill = "white", colour = "grey90"),
+        strip.text.x = element_text(size = 12, colour = 'black'),
+        legend.key.width = unit(0.5, "cm"),
+        legend.key.height = unit(0.5, "cm"),
+        axis.text = element_text(color = "grey40"),
+        axis.ticks = element_blank(),
+        strip.text = element_text(colour = "black", size = 12),
+        panel.grid = element_line(color = "grey90"),
+        panel.grid.major = element_blank(),
+        plot.margin = margin(l = 5, b = 5, r = 5, t = 5),
+        panel.grid.minor = element_blank(),
+        plot.title = element_text(face = "bold"),
+        strip.background = element_rect(colour = "grey90", fill ="white"),
+        legend.position = "right", legend.title = element_text(size = 12, colour = "black"),
+        legend.text = element_text(size = 12, color = "black"),
+        legend.key = element_rect(fill = NA))
+
+# set up colours
+col1 <- "#4E6688"
+col2 <- "#332D56"
+col3 <- "#E3EEB2"
+col4 <- "#71C0BB"
+ 
+# color mapping
+color_mapping <- function(Treatment) {
+  if (grepl("Control", Treatment)) {
+    return(col1)  
+  } else if (grepl("Roots", Treatment)) {
+    return(col2) 
+  } else if (grepl("Urine", Treatment)) {
+    return(col3)
+  } else if (grepl("Both", Treatment)) {
+    return(col4)
+    }
+}
+
+
+color_mapping_combo <- function(Treatment_combined) {
+  if (grepl("C", Treatment_combined)) {
+    return(col1)  
+  } else if (grepl("U", Treatment_combined)) {
+    return(col3)
+    }
+}
+
+lines_color <- "grey40"
+
+
+treatments_short <- as_labeller(c("Control" = "C", 
+                                  "Roots" = "R",
+                                  "Urine" = "U",
+                                  "Both" = "U + R",
+                                  "Lincoln" = "Canterbury",
+                                  "Kumara" = "West Coast",
+                                  "Observed" = "Observed",
+                                  "Pielou" = "Pielou",
+                                  "Shannon" = "Shannon"))
+
+```
+
+```{r}
+
+
+# Get all .xls files
+files <- list.files(path = "C:/Users/bogda/Documents/PhD/TRUESOIL/urine_experiment/FBA_results/tables", pattern = "\\.xls$", full.names = TRUE)
+
+# Read and combine all files
+FBA_results <- purrr::map_df(files, function(file) {
+  df <- read_excel(file, sheet = 1)
+  sample <- gsub("\\.xls$", "", basename(file))
+  df$bin_id <- sample
+  return(df)
+}) %>%
+  dplyr::relocate(bin_id, .before = id) %>%
+  separate(
+    bin_id,
+    into = c("seqcoast_id", "bin_id"),
+    sep = "_bin\\.",
+    remove = FALSE
+  ) %>%
+  mutate(bin_id = paste0("bin.", bin_id))
+
+FBA_results
+#writexl::write_xlsx(FBA_results, path = "C:/Users/bogda/Documents/PhD/TRUESOIL/urine_experiment/FBA_results/tables/combined_master_table.xlsx")
+
+```
+
+
+```{r}
+
+# calculate uptake
+C_uptake_flux <- FBA_results %>%
+  filter(uptake > 0, str_detect(formula, "^C\\d+") | str_detect(formula, "^CH")) %>%
+  mutate(C_atoms = case_when(
+    str_detect(formula, "^CH") ~ 1,
+    TRUE ~ as.numeric(str_extract(formula, "(?<=^C)\\d+"))
+  )) %>%
+  mutate(
+    C_uptake_rate = C_atoms * uptake
+  ) %>%
+  dplyr::relocate(C_uptake_rate, C_atoms, .before = charge) %>%
+  group_by(seqcoast_id, bin_id) %>%
+  dplyr::summarise(sum(C_uptake_rate))
+
+# calculate secretion
+C_secretion_flux <- FBA_results %>%
+  filter(uptake < 0, formula == "CO2" | str_detect(formula, "^C\\d+") | str_detect(formula, "^CH"), name != "Biomass [c0]") %>%
+  mutate(C_atoms = case_when(
+    str_detect(formula, "^CH") ~ 1,
+    str_detect(formula, "CO2") ~ 1,
+    TRUE ~ as.numeric(str_extract(formula, "(?<=^C)\\d+"))
+  )) %>%
+  mutate(
+    C_secretion_rate = C_atoms * uptake * -1
+  ) %>%
+  dplyr::relocate(C_secretion_rate, C_atoms, .before = charge) %>%
+  group_by(seqcoast_id, bin_id) %>%
+  dplyr::summarise(sum(C_secretion_rate))
+
+
+
+# combine them and calculate CUE
+CUE_results <- C_uptake_flux %>%
+  full_join(C_secretion_flux, by = c("seqcoast_id", "bin_id")) %>%
+  dplyr::rename("uptake" = "sum(C_uptake_rate)", "secretion" = "sum(C_secretion_rate)") %>%
+  mutate(cue = (uptake - secretion)/uptake)
+
+```
+
+```{r later}
+
+
+
+# LATER
+diamond_taxa_data <- taxa %>%
+  left_join(greening_hits_filt, by = c("sample", "bin")) %>%
+  mutate(
+    soil_id_rep = case_when(
+      sample %in% names(soil_id_rep) ~ soil_id_rep[sample]
+    )
+  ) %>%
+  mutate(
+    soil_id = case_when(
+      sample %in% names(soil_id) ~ soil_id[sample]
+    )
+  ) %>%
+  relocate(c(soil_id, soil_id_rep), .before = "sample")
+
+#saveRDS(diamond_taxa_data, file = "C:/Users/bogda/Documents/PhD/TRUESOIL/rainfall_and_birch/MAGs/diamond_taxa_rds")
+
+diamond_taxa_data$genus[is.na(diamond_taxa_data$genus)] <- "unknown genus"
+diamond_taxa_data$soil_id_taxa <- paste(diamond_taxa_data$soil_id_rep, diamond_taxa_data$bin, diamond_taxa_data$genus, diamond_taxa_data$class, sep = " ")
+diamond_taxa_data <- diamond_taxa_data %>% 
+  mutate(soil_id_taxa = str_replace(soil_id_taxa, "(.* )([^-]+)$", "\\1(\\2)")) %>%
+  mutate(soil_id_taxa = str_replace_all(soil_id_taxa, "\\.", "_")) %>%
+  relocate(soil_id_taxa, .before = "sample")
+
+correlation_check <- diamond_taxa_data %>%
+  group_by(soil_id_taxa, sample, bin) %>%
+  dplyr::summarise(count = n(), .groups = "drop") %>%
+  na.omit() %>%
+  left_join(bins_stats, by = c("sample", "bin"))
+
+# check if gene copies correlate with genome stats
+cor.test(correlation_check$count, correlation_check$completeness, method = "spearman")
+cor.test(correlation_check$count, correlation_check$contamination, method = "spearman")
+cor.test(correlation_check$count, correlation_check$N50, method = "spearman")
+cor.test(correlation_check$count, correlation_check$size, method = "spearman")
+
+#unique(diamond_taxa_data$phylum)
+
+taxa %>%
+  group_by(class) %>%
+  dplyr::summarise(count = n())
+
+```
+
+```{r combine FBA, taxa, and metadata}
+# upload taxa
+bac_taxa <- read_tsv("C:/Users/bogda/Documents/PhD/TRUESOIL/urine_experiment/MAGs/gtdbtk.bac120_modified.tsv") %>% select(seqcoast_id:species)
+arc_taxa <- read_tsv("C:/Users/bogda/Documents/PhD/TRUESOIL/urine_experiment/MAGs/gtdbtk.ar53_modified.tsv") %>% select(seqcoast_id:species)
+
+taxa <- bind_rows(bac_taxa, arc_taxa)
+
+# upload bin stats
+bins_stats <- read_tsv("C:/Users/bogda/Documents/PhD/TRUESOIL/urine_experiment/MAGs/all_samples_metawrap_bins.stats.tsv") %>%
+  dplyr::rename("bin_id" = bin)
+
+# assign soil ids
+soil_id <- c("6109_001" = "L1", 
+             "6109_002" = "L4", 
+             "6109_003" = "L7",
+             "6109_004" = "L10",
+             "6109_005" = "L19",
+             "6109_006" = "L22",
+             "6109_007" = "L25", 
+             "6109_008" = "L28", 
+             "6109_009" = "L31",
+             "6109_010" = "L34",
+             "6109_011" = "L37",
+             "6109_012" = "L40",
+             "6109_013" = "L43", 
+             "6109_014" = "L46",
+             "6109_015" = "L59",
+             "6109_016" = "L52",
+             "6109_017" = "L55",
+             "6109_018" = "L58",
+             "6109_019" = "L61", 
+             "6109_020" = "L64", 
+             "6109_021" = "L67",
+             "6109_022" = "L70",
+             "6109_023" = "K1",
+             "6109_024" = "K4",
+             "6109_025" = "K7", 
+             "6109_026" = "K10", 
+             "6109_027" = "K13",
+             "6109_028" = "K16",
+             "6109_029" = "K19",
+             "6109_030" = "K22",
+             "6109_031" = "K25", 
+             "6109_032" = "K28", 
+             "6109_033" = "K31",
+             "6109_034" = "K34",
+             "6109_035" = "K37",
+             "6109_036" = "K40",
+             "6109_037" = "K43")
+
+# upload metadata
+metadata <- read.csv("C:/Users/bogda/Documents/PhD/TRUESOIL/urine_experiment/urine_experiment_metadata_all_new.csv", sep = ",", dec = ".") %>%
+  filter(soil_id != "") %>%
+  mutate(MBC_ug_g = (fMBC_TC_mg_L - nfMBC_TC_mg_L)*16/4,
+         TOC_ug_g = (CWC_TOC_mg_L + HWC_TOC_mg_L)*30/3) %>%
+  group_by(soil_id, Location, Treatment) %>%
+  summarize_at(vars(Time_d, pH, EC_µS_cm, NH4_N_mg_L, NO3_N_mg_l, CO2_ppm, CH4_ppm, MBC_ug_g, TOC_ug_g), funs(median(.)))
+
+# bind all tables
+combined_results <- CUE_results %>%
+  left_join(taxa, by = c("seqcoast_id", "bin_id")) %>%
+  left_join(bins_stats, by = c("seqcoast_id", "bin_id")) %>%
+  mutate(soil_id = str_replace_all(seqcoast_id, soil_id)) %>%
+  dplyr::relocate(soil_id, .before = "seqcoast_id") %>%
+  left_join(metadata, by = "soil_id")
+
+combined_results
+
+#saveRDS(combined_results, "C:/Users/bogda/Documents/PhD/TRUESOIL/urine_experiment/CUE_results.rds")
+
+# plots
+library(ggpubr)
+
+plot1 <- combined_results %>%
+  ggplot(aes(x = MBC_ug_g, y = cue)) +
+  geom_point(aes(color = Location), size = 3) +
+  geom_smooth(aes(color = Location, linetype = Location), method = "lm", formula = y ~ x + I(x^2), se = F, show.legend = FALSE) +
+  labs(color = "Location", x = "MBC (ug/g)", y = "CUE") +
+  stat_cor(aes(color = Location), method = "spearman", cor.coef.name = "rho", p.digits = 1, label.x = 300, show.legend = FALSE) +
+  scale_color_manual(values = c("#1E88E5", "#FFC107")) +
+  scale_linetype_manual(values = c("dashed", "solid")) +
+  ggtitle("Microbial CUE vs MBC") +
+  truesoil_theme +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 10))
+
+plot1
+
+ggsave(plot1, filename = "C:/Users/bogda/Documents/PhD/TRUESOIL/urine_experiment/Plots/CUE/CUE_vs_MBC.pdf", device = "pdf", width = 6, height = 4, unit = "in")
+
+
+plot2 <- combined_results %>%
+  ggplot(aes(x = Location, y = cue)) +
+  geom_boxplot() +
+  labs(x = "Location", y = "CUE") +
+  #stat_cor(aes(color = Location), method = "spearman", cor.coef.name = "rho", p.digits = 1, show.legend = FALSE) +
+  #scale_color_manual(values = c("#1E88E5", "#FFC107")) +
+  #scale_linetype_manual(values = c("dashed", "solid")) +
+  ggtitle("Microbial CUE among Locations") +
+  truesoil_theme +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 10))
+
+plot2
+
+ggsave(plot2, filename = "C:/Users/bogda/Documents/PhD/TRUESOIL/urine_experiment/Plots/CUE/CUE_among_Locations.pdf", device = "pdf", width = 6, height = 4, unit = "in")
+
+# boxplots
+
+plot3 <- combined_results %>%
+  ggplot(aes(x = Treatment, y = cue)) +
+  geom_boxplot() +
+  labs(x = "Treatment", y = "CUE") +
+  stat_cor(aes(color = Treatment), method = "spearman", cor.coef.name = "rho", p.digits = 1, show.legend = FALSE) +
+  #scale_color_manual(values = c("#1E88E5", "#FFC107")) +
+  #scale_linetype_manual(values = c("dashed", "solid")) +
+  ggtitle("Microbial CUE among Lab Treatments") +
+  truesoil_theme +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 10))
+
+plot3
+
+ggsave(plot3, filename = "C:/Users/bogda/Documents/PhD/TRUESOIL/urine_experiment/Plots/CUE/CUE_among_treatments.pdf", device = "pdf", width = 6, height = 4, unit = "in")
+
+
+
+plot4 <- combined_results %>%
+  ggplot(aes(x = GC, y = cue)) +
+  geom_point(aes(color = phylum), size = 3) +
+  geom_smooth(method = "lm", se = F, color = "black", linetype = "dashed",  show.legend = FALSE) +
+  labs(color = "Phylum", x = "GC", y = "CUE") +
+  stat_cor(method = "spearman", cor.coef.name = "rho", p.digits = 1, show.legend = FALSE) +
+  ggtitle("Microbial CUE vs GC content") +
+  truesoil_theme +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 10))
+
+plot4
+
+ggsave(plot4, filename = "C:/Users/bogda/Documents/PhD/TRUESOIL/urine_experiment/Plots/CUE/CUE_vs_GC.pdf", device = "pdf", width = 6, height = 4, unit = "in")
+
+
+plot5 <- combined_results %>%
+  ggplot(aes(x = GC, y = cue)) +
+  geom_point(aes(color = phylum), size = 3) +
+  geom_smooth(method = "lm", se = F, color = "black", linetype = "dashed",  show.legend = FALSE) +
+  labs(color = "Phylum", x = "GC", y = "CUE") +
+  stat_cor(method = "spearman", cor.coef.name = "rho", p.digits = 1, show.legend = FALSE) +
+  ggtitle("Microbial CUE vs GC content") +
+  truesoil_theme +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 10))
+
+plot5
+
+
+
+plot6 <- combined_results %>%
+  ggplot(aes(x = Time_d, y = cue)) +
+  geom_point(aes(color = Location), size = 3) +
+  geom_smooth(aes(color = Location), method = "lm", se = F, linetype = "dashed",  show.legend = FALSE) +
+  labs(color = "Location", x = "pH", y = "CUE") +
+  stat_cor(aes(color = Location), method = "spearman", cor.coef.name = "rho", p.digits = 1, show.legend = FALSE) +
+  ggtitle("") +
+  truesoil_theme +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 10))
+
+plot6
+
+
+
+plot7 <- combined_results %>%
+  mutate(Time_d = factor(Time_d, levels = c("1","7","14", "19", "20", "21", "22", "24", "28", "50", "72", "82"))) %>%
+  ggplot(aes(x = Time_d, y = cue)) +
+  geom_boxplot(aes(color = Location)) +
+  labs(color = "Location", x = "pH", y = "CUE") +
+  ggtitle("") +
+  truesoil_theme +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 10))
+
+plot7
+
+# Simple Kruskal-Wallis test across all data
+kruskal_all <- kruskal.test(cue ~ Treatment, data = combined_results)
+
+# View results
+print(kruskal_all)
+
+
+
+
+```
+
+```{r}
+combined_results$Treatment_combined <- case_when(combined_results$Treatment %in% c("Control", "Roots") ~ "C / R", TRUE ~ "U / U + R")
+
+combined_results_sum <- combined_results %>%
+  group_by(Location, Treatment_combined, Time_d) %>%
+  dplyr::summarise(
+    across(
+      cue,
+      list(median = ~median(.x, na.rm = TRUE), 
+           IQR = ~IQR(.x, na.rm = TRUE))
+    ),
+    .groups = "drop"
+  ) %>%
+    mutate(Time_d = factor(Time_d, levels = c("1", "2", "7", "14", "19", "20", "21", "22", "24", "28", "50", "72", "82")))
+
+
+combined_results_sum$color <- sapply(combined_results_sum$Treatment, color_mapping)
+combined_results_sum$Treatment <- factor(combined_results_sum$Treatment, levels = c("Control", "Roots", "Urine", "Both"))
+
+
+  
+CUE_MAGs_plot_L <- ggplot(combined_results_sum %>% filter(Location == "Lincoln"), aes(y = cue_median, x = Time_d, group = Treatment, color = Treatment, shape = Treatment)) +
+  geom_vline(xintercept = 3.8, colour = lines_color, linetype = "dashed") +
+  geom_vline(xintercept = 1.2, colour = lines_color, linetype = "dotted") +
+  geom_line(aes(color = color), linewidth = 0.7) +
+  geom_point(aes(color = color), size = 3) +
+  geom_errorbar(aes(ymin = cue_median - cue_IQR, ymax = cue_median + cue_IQR, color = color), width =.1) +
+  scale_color_identity(name = "Treatment", breaks = c(col1, col2, col3, col4), labels = c("C", "R", "U", "U + R"), guide = "legend") +
+  scale_shape_manual(name = "Treatment", values = c(17, 18, 15, 16), labels = c("C", "R", "U", "U + R"), guide = "legend") +
+  labs(x = "Time (d)", y = "CUE") +
+  scale_x_discrete(labels = scales::label_wrap(2)) +
+  truesoil_theme +
+  theme(plot.margin = margin(l = 10, b = 10, r = 10, t = 10),
+        legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  ggtitle("Lincoln")
+
+CUE_MAGs_plot_L
+
+
+  
+CUE_MAGs_plot_K <- ggplot(combined_results_sum %>% filter(Location == "Kumara"), aes(y = cue_median, x = Time_d, group = Treatment, color = Treatment, shape = Treatment)) +
+  geom_vline(xintercept = 2.8, colour = lines_color, linetype = "dashed") +
+  geom_vline(xintercept = 1.2, colour = lines_color, linetype = "dotted") +
+  geom_line(aes(color = color), linewidth = 0.7) +
+  geom_point(aes(color = color), size = 3) +
+  geom_errorbar(aes(ymin = cue_median - cue_IQR, ymax = cue_median + cue_IQR, color = color), width =.1) +
+  scale_color_identity(name = "Treatment", breaks = c(col1, col2, col3, col4), labels = c("C", "R", "U", "U + R"), guide = "legend") +
+  scale_shape_manual(name = "Treatment", values = c(17, 18, 15, 16), labels = c("C", "R", "U", "U + R"), guide = "legend") +
+  labs(x = "Time (d)", y = "CUE") +
+  scale_x_discrete(labels = scales::label_wrap(2)) +
+  truesoil_theme +
+  theme(plot.margin = margin(l = 10, b = 10, r = 10, t = 10),
+        legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  ggtitle("Kumara Junction")
+
+CUE_MAGs_plot_K
+
+
+# combined
+combined_results_sum$color <- sapply(combined_results_sum$Treatment_combined, color_mapping_combo)
+combined_results_sum$Treatment_combined <- factor(combined_results_sum$Treatment_combined, levels = c("C / R", "U / U + R"))
+
+CUE_MAGs_plot_L <- ggplot(combined_results_sum %>% filter(Location == "Lincoln"), aes(y = cue_median, x = Time_d, group = Treatment_combined, color = Treatment_combined, shape = Treatment_combined)) +
+  geom_vline(xintercept = 3.8, colour = lines_color, linetype = "dashed") +
+  geom_vline(xintercept = 1.2, colour = lines_color, linetype = "dotted") +
+  geom_line(aes(color = color), linewidth = 0.7) +
+  geom_point(aes(color = color), size = 3) +
+  geom_errorbar(aes(ymin = cue_median - cue_IQR, ymax = cue_median + cue_IQR, color = color), width =.1) +
+  scale_color_identity(name = "Treatment", breaks = c(col1, col3), labels = c("C / R", "U / U + R"), guide = "legend") +
+  scale_shape_manual(name = "Treatment", values = c(17, 18, 15, 16), labels = c("C / R", "U / U + R"), guide = "legend") +
+  labs(x = "Time (d)", y = "CUE") +
+  scale_x_discrete(labels = scales::label_wrap(2)) +
+  truesoil_theme +
+  theme(plot.margin = margin(l = 10, b = 10, r = 10, t = 10),
+        legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  ggtitle("Lincoln")
+
+CUE_MAGs_plot_L
+
+
+CUE_MAGs_plot_K <- ggplot(combined_results_sum %>% filter(Location == "Kumara"), aes(y = cue_median, x = Time_d, group = Treatment_combined, color = Treatment_combined, shape = Treatment_combined)) +
+  geom_vline(xintercept = 2.8, colour = lines_color, linetype = "dashed") +
+  geom_vline(xintercept = 1.2, colour = lines_color, linetype = "dotted") +
+  geom_line(aes(color = color), linewidth = 0.7) +
+  geom_point(aes(color = color), size = 3) +
+  geom_errorbar(aes(ymin = cue_median - cue_IQR, ymax = cue_median + cue_IQR, color = color), width =.1) +
+  scale_color_identity(name = "Treatment", breaks = c(col1, col3), labels = c("C / R", "U / U + R"), guide = "legend") +
+  scale_shape_manual(name = "Treatment", values = c(17, 18, 15, 16), labels = c("C / R", "U / U + R"), guide = "legend") +
+  labs(x = "Time (d)", y = "CUE") +
+  scale_x_discrete(labels = scales::label_wrap(2)) +
+  truesoil_theme +
+  theme(plot.margin = margin(l = 10, b = 10, r = 10, t = 10),
+        legend.position = c(0.8, 0.75),
+        plot.title = element_text(hjust = 0.5)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  ggtitle("Kumara Junction")
+
+CUE_MAGs_plot_K
+
+```
+```{r}
+
+CUE_MAGs_plot_L <- CUE_MAGs_plot_L + rremove("legend")
+
+CUE_MAGs_plot <- wrap_plots(CUE_MAGs_plot_L, CUE_MAGs_plot_K) + plot_layout(axis_titles = "collect")
+
+ggsave(CUE_MAGs_plot, filename = "C:/Users/bogda/Documents/PhD/TRUESOIL/urine_experiment/Plots/CUE/CUE_MAGs_plot.png", device = "png", width = 9, height = 4, unit = "in")
+
+combined_results_L <- combined_results %>% filter(Location == "Lincoln")
+
+summary(combined_results_L$cue)
+
+combined_results_K <- combined_results %>% filter(Location == "Kumara")
+
+summary(combined_results_K$cue)
+
+```
+
+
