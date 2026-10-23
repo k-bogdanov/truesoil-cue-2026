@@ -17,3 +17,28 @@ truesoil_theme <- theme(
   legend.position = "right", legend.title = element_text(size = 16, colour = "black"),
   legend.text = element_text(size = 16, color = "black"),
   legend.key = element_rect(fill = NA))
+
+col1 <- "#44af69"
+col2 <- "#0a2463"
+col3 <- "#fcbf49"
+col4 <- "#fb3640"
+
+# color mapping
+color_mapping <- function(Treatment) {
+  if (grepl("Control", Treatment)) {
+    return(col1)  
+  } else if (grepl("Roots", Treatment)) {
+    return(col2) 
+  } else if (grepl("Urine", Treatment)) {
+    return(col3)
+  } else if (grepl("Both", Treatment)) {
+    return(col4)
+    }
+}
+
+lines_color <- "grey40"
+
+treatments_short <- as_labeller(c("Control" = "C", 
+                                  "Roots" = "R",
+                                  "Urine" = "U",
+                                  "Both" = "U + R"))
