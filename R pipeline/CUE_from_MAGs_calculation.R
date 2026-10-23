@@ -122,3 +122,80 @@ CUE_MAGs_plot_K <- ggplot(combined_results_sum %>% filter(Location == "Kumara"),
   ggtitle("High-MAP soil (Kumara)")
 
 CUE_MAGs_plot_K
+# correlation with GC content and genome size
+col1 <- "#f9c74f"
+col2 <- "#033270"
+col3 <- "#1368aa" 
+col4 <- "#4091c9"
+col5 <- "#9dcee2" 
+col6 <- "#43aa8b"
+col7 <- "#90be6d" 
+col8 <- "#efb366"
+col9 <- "#f26a4f"
+col10 <- "#ef3c2d"
+col11 <- "#cb1b16"
+col12 <- "#65010c"
+
+taxa_pal_10 <- c(col1, col2, col3, col4, col5, col6, col7, col8, col9, "grey90")
+
+taxa_pal_10["Verrucomicrobiia"] <- col1
+taxa_pal_10["Thermoleophilia"] <- col2
+taxa_pal_10["Vicinamibacteria"] <- col3
+
+taxa_pal_10["Actinobacteria"] <- col4
+taxa_pal_10["Planctomycetes"] <- col5
+taxa_pal_10["KD4-96"] <- col6
+
+taxa_pal_10["Alphaproteobacteria"] <- col7
+taxa_pal_10["Gitt-GS-136"] <- col8
+taxa_pal_10["Bacteroidia"] <- col9
+
+taxa_pal_10["Gammaproteobacteria"] <- col10
+taxa_pal_10["Acidobacteriae"] <- col11
+taxa_pal_10["Polyangiia"] <- col12
+
+taxa_pal_10["Other"] <- "grey90"
+
+combined_results_colored <- combined_results %>%
+  filter(!is.na(phylum)) %>%
+  mutate(COLOR = sapply(phylum, color_mapping))
+# GC content
+plot5 <- combined_results_colored %>%
+  ggplot(aes(x = GC, y = cue, color = COLOR)) +  # Changed: map to COLOR
+  geom_point(size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed", show.legend = FALSE) +
+  scale_color_identity(name = "Phylum", 
+                       breaks = unique(combined_results_colored$COLOR[!is.na(combined_results$phylum)]),  # The hex codes
+                       labels = unique(combined_results_colored$phylum[!is.na(combined_results$phylum)]),  # Phylum names
+                       guide = "legend") +
+  labs(x = "GC (%)", y = "Predicted CUE") +
+  stat_cor(data = combined_results_colored, 
+           mapping = aes(x = GC, y = cue, color = NULL),
+           method = "spearman", cor.coef.name = "rho", p.digits = 1, show.legend = FALSE, size = 5) +
+  ggtitle("C") +
+  revised_theme +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 10), legend.position = "none")
+
+plot5
+
+legend <- get_legend(plot5)
+plot5 <- plot5 + theme(legend.position = "none")
+
+# genome size
+plot8 <- combined_results_colored %>%
+  ggplot(aes(x = size, y = cue, color = COLOR)) +  # Changed: map to COLOR
+  geom_point(size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", show.legend = FALSE) +
+  scale_color_identity(name = "Phylum", 
+                       breaks = unique(combined_results_colored$COLOR[!is.na(combined_results$phylum)]),  # The hex codes
+                       labels = unique(combined_results_colored$phylum[!is.na(combined_results$phylum)]),  # Phylum names
+                       guide = "legend") +
+  labs(x = "Genome size (bp)", y = "Predicted CUE") +
+  stat_cor(data = combined_results_colored, 
+           mapping = aes(x = size, y = cue, color = NULL),
+           method = "spearman", cor.coef.name = "rho", p.digits = 1, show.legend = FALSE, size = 5, label.x.npc = 0.6) +
+  ggtitle("B") +
+  revised_theme +
+  theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 10), legend.position = "none")
+
+plot8
