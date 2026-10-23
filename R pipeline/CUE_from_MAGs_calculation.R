@@ -54,7 +54,7 @@ CUE_results <- C_uptake_flux %>%
   mutate(cue = (uptake - secretion)/uptake)
 
 # this is already combined with measured CUE
-combined_results <- readRDS("C:/Users/bogda/Documents/PhD/TRUESOIL/urine_experiment/CUE_results_new.rds")
+combined_results <- readRDS("~/combined_results.rds")
 
 combined_results$Treatment_combined <- case_when(combined_results$Treatment %in% c("Control", "Roots") ~ "No urine", TRUE ~ "Urine applied")
 
