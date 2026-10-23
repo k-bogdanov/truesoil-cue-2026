@@ -1,4 +1,4 @@
-revised_theme <- theme(
+truesoil_theme <- theme(
   axis.title.y = element_text(size = 16, face = "bold", vjust = 3),
   axis.title.x = element_text(size = 16, face = "bold", vjust = -1),
   panel.background = element_rect(fill = "white", colour = "grey90"),
