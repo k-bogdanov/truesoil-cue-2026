@@ -1,0 +1,14 @@
+# load module
+module purge
+module load IQ-TREE/3.1.1-foss-2023a
+
+# paths
+OUT=/home/~/iqtree_output/bacteria
+IN=/home/~/gtdbtk_output/align
+mkdir -p $OUT
+
+iqtree3 -T ${SLURM_CPUS_PER_TASK} -B 1000 -m MFP \
+  -s ${IN}/gtdbtk.bac120.user_msa.fasta \
+  -pre ${OUT}/joint_tree
+
+# same for arc
