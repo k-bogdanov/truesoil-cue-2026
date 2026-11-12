@@ -199,3 +199,18 @@ plot8 <- combined_results_colored %>%
   theme(plot.margin = margin(t = 10, r = 10, b = 10, l = 10), legend.position = "none")
 
 plot8
+
+# genome completeness-corrected correlation
+
+cor_data <- combined_results_colored %>%
+  dplyr::select(GC, cue, completeness) %>% # or size
+  tidyr::drop_na()
+
+cor.test <- ppcor::pcor.test(
+  cor_data$GC, # or size
+  cor_data$cue,
+  cor_data$completeness,
+  method = "spearman"
+)
+
+cor.test
